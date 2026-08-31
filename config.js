@@ -1,7 +1,7 @@
 // Google Sheets 연결 설정
 window.DASHBOARD_CONFIG = {
   sheetId: '1sR1aDzK0dCqfCrYrir7LoCXTL206OsZe-abhzajzIig',
-  gid: '426494944',
+  gid: '213953713',
   refreshMs: 60000, // 60초마다 최신 응답 재조회
   candidateIds: ['01','02','03','04','05','06'],
   candidateColors: {
