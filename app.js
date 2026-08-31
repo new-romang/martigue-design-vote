@@ -218,7 +218,7 @@
   function renderGenderDonut(a) {
     const male = a.genderRespondents['남성']||0, female = a.genderRespondents['여성']||0, known=male+female;
     const card = $('.dcard'); if (!card) return;
-    const sub = $('.csub',card); if (sub) sub.textContent = `전체 ${a.rows.length}명`;
+    const sub = $('.csub',card); if (sub) sub.textContent = `전체 ${a.respondents.length}명`;
     const fPct = pct(female,known), mPct = 100-fPct;
     const circumference = 2*Math.PI*44;
     const circles = $$('svg circle',card);
