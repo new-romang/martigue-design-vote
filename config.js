@@ -10,5 +10,7 @@ window.DASHBOARD_CONFIG = {
   },
   // 아래 키워드로 성별/연령대 열을 자동 인식합니다.
   genderHeaderKeywords: ['성별','gender','sex'],
-  ageHeaderKeywords: ['연령대','연령','나이','age']
+  ageHeaderKeywords: ['연령대','연령','나이','age'],
+  // 투표 질문/후보 열만 읽도록 제한합니다. 타임스탬프 등 다른 숫자는 집계하지 않습니다.
+  voteHeaderKeywords: ['디자인','선택','투표','선호','후보','마음에 드는']
 };
