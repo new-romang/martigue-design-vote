@@ -48,40 +48,19 @@
     });
   }
 
-  function tableToRows(table) {
-    const headers = (table.cols || []).map((c,i) => (c.label || c.id || `열${i+1}`).trim());
-    return (table.rows || []).map(r => {
-      const obj = {};
-      headers.forEach((h,i) => {
-        const cell = r.c?.[i];
-        obj[h] = cell?.f ?? cell?.v ?? '';
-      });
-      return obj;
-    }).filter(row => Object.values(row).some(v => String(v ?? '').trim() !== ''));
+  // RAW 시트 열 위치를 직접 사용합니다.
+  // A=타임스탬프, B=디자인 투표, C=성별, D=연령대
+  function cellValue(cell) {
+    return cell?.f ?? cell?.v ?? '';
   }
 
-  function findHeader(headers, keywords) {
-    const lower = headers.map(h => String(h).toLowerCase().replace(/\s/g,''));
-    for (let i=0;i<lower.length;i++) {
-      if (keywords.some(k => lower[i].includes(String(k).toLowerCase().replace(/\s/g,'')))) return headers[i];
-    }
-    return null;
-  }
-
-  function findVoteHeaders(headers, genderHeader, ageHeader) {
-    const keywords = (C.voteHeaderKeywords || ['디자인','선택','투표','선호','후보']).map(k => String(k).toLowerCase().replace(/\s/g,''));
-    return headers.filter(h => {
-      if (h === genderHeader || h === ageHeader) return false;
-      const hs = String(h).trim();
-      const compact = hs.toLowerCase().replace(/\s/g,'');
-      // 후보별 체크박스 열: 01 / 1 / 01번 / 디자인01 등
-      if (ids.some(id => {
-        const n = Number(id);
-        return new RegExp(`^(?:디자인|design|후보)?0?${n}(?:번)?$`, 'i').test(compact);
-      })) return true;
-      // Google Form의 "선호 디자인을 선택해주세요" 같은 질문 열
-      return keywords.some(k => compact.includes(k));
-    });
+  function tableToRawRows(table) {
+    return (table.rows || []).map(r => ({
+      timestamp: cellValue(r.c?.[0]),
+      vote: cellValue(r.c?.[1]),
+      gender: cellValue(r.c?.[2]),
+      age: cellValue(r.c?.[3])
+    })).filter(row => String(row.vote ?? '').trim() !== '');
   }
 
   function normGender(v) {
@@ -93,48 +72,34 @@
 
   function normAge(v) {
     const s = String(v ?? '').trim();
-    const m = s.match(/(20|30|40|50|60|70|80|90)/);
+    const m = s.match(/(10|20|30|40|50|60|70|80|90)/);
     if (m) return `${m[1]}대`;
     const n = Number(String(v).replace(/[^0-9.]/g,''));
     if (Number.isFinite(n) && n >= 10 && n < 100) return `${Math.floor(n/10)*10}대`;
     return null;
   }
 
-  function truthy(v) {
-    const s = String(v ?? '').trim().toLowerCase();
-    return ['1','true','yes','y','v','✓','✔','선택','o'].includes(s);
-  }
-
-  function extractVotes(row, voteHeaders) {
+  function extractVotesFromCell(v) {
+    const s = String(v ?? '').trim();
+    if (!s) return [];
     const chosen = new Set();
-    for (const h of voteHeaders) {
-      const v = row[h];
-      const hs = String(h).trim();
-      const vs = String(v ?? '').trim();
-      if (!vs) continue;
-
-      // 후보번호가 열 제목이고 값이 체크/선택형인 경우
-      const headerCandidate = ids.find(id => {
-        const n = Number(id);
-        return new RegExp(`^(?:디자인|design|후보)?0?${n}(?:번)?$`, 'i').test(hs.replace(/\s/g,''));
-      });
-      if (headerCandidate && truthy(v)) chosen.add(headerCandidate);
-
-      // 응답값 안에서 "01", "01번", "디자인 01" 형태만 후보로 인식
+    // 값 예: "01, 02" / "05" / "02,06"
+    for (const token of s.split(/[,，;、/|\n]+/)) {
+      const m = token.trim().match(/(?:^|\D)(0?[1-6])(?:번)?(?:\D|$)/);
+      if (m) chosen.add(String(Number(m[1])).padStart(2,'0'));
+    }
+    // 혹시 구분자가 특이한 경우에도 01~06만 보조 탐색
+    if (!chosen.size) {
       for (const id of ids) {
         const n = Number(id);
         const re = new RegExp(`(?:^|[^0-9])0?${n}(?:번)?(?=[^0-9]|$)`);
-        if (re.test(vs)) chosen.add(id);
+        if (re.test(s)) chosen.add(id);
       }
     }
     return [...chosen];
   }
 
   function analyze(rows) {
-    const headers = rows.length ? Object.keys(rows[0]) : [];
-    const genderHeader = findHeader(headers, C.genderHeaderKeywords);
-    const ageHeader = findHeader(headers, C.ageHeaderKeywords);
-    const voteHeaders = findVoteHeaders(headers, genderHeader, ageHeader);
     const voteCounts = emptyCounts();
     const genderRespondents = {'남성':0,'여성':0};
     const genderVotes = {'남성':emptyCounts(),'여성':emptyCounts()};
@@ -143,13 +108,10 @@
     const respondents = [];
 
     for (const row of rows) {
-      const g = genderHeader ? normGender(row[genderHeader]) : null;
-      const a = ageHeader ? normAge(row[ageHeader]) : null;
-      const votes = extractVotes(row, voteHeaders);
-
-      // 실제 투표가 있는 행만 응답자로 집계합니다.
-      // 시트 아래쪽의 요약표/계산행이 있어도 총 응답자 수에 포함되지 않습니다.
+      const votes = extractVotesFromCell(row.vote);
       if (!votes.length) continue;
+      const g = normGender(row.gender);
+      const a = normAge(row.age);
       respondents.push({row,g,a,votes});
 
       if (g) genderRespondents[g]++;
@@ -161,7 +123,11 @@
         if (a) ageVotes[a][id]++;
       }
     }
-    return {rows, respondents, headers, genderHeader, ageHeader, voteHeaders, voteCounts, genderRespondents, genderVotes, ageVotes, ageRespondents};
+    return {
+      rows, respondents, voteCounts, genderRespondents, genderVotes,
+      ageVotes, ageRespondents,
+      genderHeader: 'C열 성별', ageHeader: 'D열 연령대', voteHeaders: ['B열 투표응답']
+    };
   }
 
   function ranked(counts) {
@@ -298,10 +264,9 @@
     setStatus('Google Sheets 불러오는 중…');
     try {
       const table = await querySheet();
-      const rows = tableToRows(table);
+      const rows = tableToRawRows(table);
       if (!rows.length) throw new Error('시트에 읽을 수 있는 응답 행이 없습니다.');
       const a = analyze(rows);
-      if (!a.voteHeaders.length) throw new Error('투표 응답 열을 찾지 못했습니다. config.js의 voteHeaderKeywords를 확인하세요.');
       if (!a.respondents.length) throw new Error('투표값이 있는 응답 행을 찾지 못했습니다.');
       render(a);
       const t = new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -310,7 +275,6 @@
       setStatus(`LIVE · ${t} · ${a.respondents.length}명 · ${auto}`, 'ok');
       console.info('[dashboard] vote headers:', a.voteHeaders);
       console.info('[dashboard] raw rows / valid respondents:', a.rows.length, a.respondents.length);
-      console.info('[dashboard] headers:', a.headers);
     } catch (err) {
       console.error(err);
       setStatus(`연결 오류 · ${err.message}`, 'err');
